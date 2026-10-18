@@ -1,0 +1,733 @@
+<meta charset="utf-8">
+<title>Mnemo Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout concept: a square memory chip is the stage; a quiet column of controls and process views sits beside it. */
+:root {
+  --bg: #F5F6F8; --surface: #FFFFFF; --die: #ECEEF2; --cell: #DEE2E9; --line: #E1E4EA;
+  --ink: #12161D; --muted: #667085; --accent: #F2552C; --good: #1C8F63;
+  --k-csv: #1FA191; --k-hex: #D9A21F; --k-code: #7C62D8; --k-data: #3F7BE0; --k-jpg: #DB4F7B; --k-txt: #6FA23A; --k-key: #6B7280;
+  --font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --shadow: 0 1px 0 rgba(18,22,29,.04), 0 12px 32px -16px rgba(18,22,29,.18);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1015; --surface: #151922; --die: #0F1319; --cell: #212835; --line: #272E3B;
+    --ink: #E9ECF2; --muted: #99A2B3; --accent: #FF6A42; --good: #38C28D;
+    --k-csv: #2DBBA9; --k-hex: #E8B332; --k-code: #9B86F0; --k-data: #5E95F2; --k-jpg: #F0688F; --k-txt: #8CC056; --k-key: #8B93A3;
+    --shadow: 0 1px 0 rgba(0,0,0,.4), 0 16px 36px -16px rgba(0,0,0,.7);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1015; --surface: #151922; --die: #0F1319; --cell: #212835; --line: #272E3B;
+  --ink: #E9ECF2; --muted: #99A2B3; --accent: #FF6A42; --good: #38C28D;
+  --k-csv: #2DBBA9; --k-hex: #E8B332; --k-code: #9B86F0; --k-data: #5E95F2; --k-jpg: #F0688F; --k-txt: #8CC056; --k-key: #8B93A3;
+  --shadow: 0 1px 0 rgba(0,0,0,.4), 0 16px 36px -16px rgba(0,0,0,.7);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.45;
+  padding-block: 20px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+button { font: inherit; color: inherit; }
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 24px; }
+.brand { display: flex; align-items: baseline; gap: 12px; }
+.brand h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.brand span { color: var(--muted); font-size: 13px; }
+.tabs { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); gap: 2px; }
+.tabs button { border: 0; background: transparent; padding: 7px 14px; border-radius: 8px; cursor: pointer; color: var(--muted); font-weight: 500; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stage { display: grid; grid-template-columns: minmax(0, 520px) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+
+/* chip */
+.chipcol { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.chip { position: relative; width: 100%; aspect-ratio: 1 / 1; padding: 22px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.pins { position: absolute; background-image: repeating-linear-gradient(var(--dir), var(--line) 0 5px, transparent 5px 14px); opacity: .9; }
+.pins.t, .pins.b { left: 36px; right: 36px; height: 8px; --dir: 90deg; }
+.pins.l, .pins.r { top: 36px; bottom: 36px; width: 8px; --dir: 180deg; }
+.pins.t { top: -9px; } .pins.b { bottom: -9px; } .pins.l { left: -9px; } .pins.r { right: -9px; }
+.die { position: absolute; inset: 22px; overflow: hidden; border-radius: 12px; background: var(--die); overflow: hidden; }
+.die canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+.chiplabel { position: absolute; left: 34px; top: 7px; font: 500 10px/1 var(--mono); letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
+.chipnotch { position: absolute; right: 34px; top: 7px; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--muted); opacity: .6; }
+.hover { min-height: 20px; font: 12px var(--mono); color: var(--muted); }
+.meter { display: grid; gap: 8px; }
+.bar { height: 6px; border-radius: 3px; background: var(--cell); overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; background: var(--ink); transition: width .5s ease; }
+.bar i.ghost { background: var(--cell); }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; }
+.stats b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.stats span { color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+/* side */
+[hidden] { display: none !important; }
+.side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+.card h2 { margin: 0 0 10px; font-size: 11px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; }
+.card h2 em { font-style: normal; letter-spacing: 0; text-transform: none; font-family: var(--mono); color: var(--ink); }
+.files { display: flex; flex-direction: column; }
+.frow { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.frow:first-child { border-top: 0; padding-top: 0; }
+.frow .sw { width: 12px; height: 12px; border-radius: 4px; }
+.frow .nm { min-width: 0; }
+.frow .nm b { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow .nm small { color: var(--muted); font: 12px var(--mono); }
+.frow .sz { font: 12px var(--mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 13px; }
+.btn:hover:not(:disabled) { border-color: var(--ink); }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn:disabled { opacity: .35; cursor: default; }
+.ok { color: var(--good); font: 12px var(--mono); }
+.wire { position: relative; height: 46px; }
+.wire canvas { width: 100%; height: 100%; display: block; }
+.view canvas { width: 100%; display: block; }
+.sumline { margin-top: 8px; font: 12px/1.5 var(--mono); color: var(--muted); min-height: 36px; }
+.sumline b { color: var(--ink); font-weight: 500; }
+.tags { display: inline-flex; gap: 6px; font: 11px var(--mono); }
+.tags i { font-style: normal; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--ink); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls .sp { flex: 1; }
+.controls label { color: var(--muted); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+select { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.log { font: 12px/1.6 var(--mono); color: var(--muted); max-height: 112px; overflow: auto; }
+.log div b { color: var(--ink); font-weight: 500; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 500; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 0 0 8px; }
+td { padding: 7px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; vertical-align: middle; }
+td.r, th.r { text-align: right; }
+.mini { display: flex; gap: 2px; align-items: center; min-width: 96px; }
+.mini i { width: 7px; height: 12px; border-radius: 2px; background: var(--cell); }
+.mini i.on { background: var(--c); }
+.mini i.out { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.note { color: var(--muted); font-size: 12px; margin: 0; }
+.pad { display: none; gap: 6px; }
+.pad.show { display: flex; }
+.fly { position: fixed; z-index: 50; width: 10px; height: 10px; border-radius: 3px; pointer-events: none; }
+.result { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.result div b { display: block; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.result div span { color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand"><h1>Mnemo</h1><span>A memory coprocessor, simulated on real files</span></div>
+    <div class="tabs" role="tablist" aria-label="Scene">
+      <button role="tab" id="tab1" aria-selected="true" aria-controls="s1">1 · Store and retrieve</button>
+      <button role="tab" id="tab2" aria-selected="false" aria-controls="s2">2 · Compact a full chip</button>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div class="chipcol">
+      <div class="chip" id="chipbox">
+        <div class="pins t"></div><div class="pins b"></div><div class="pins l"></div><div class="pins r"></div>
+        <div class="die"><canvas id="cv" aria-label="Memory chip, 256 chunks of 128 bytes"></canvas>
+          <div class="chiplabel">Mnemo · 32 KB · 256 chunks</div><div class="chipnotch"></div></div>
+      </div>
+      <div class="hover" id="hover">Hover a cell to see what it holds.</div>
+      <div class="meter">
+        <div class="bar" aria-hidden="true"><i id="barUsed" style="width:0%"></i></div>
+        <div class="stats" id="stats"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="side">
+      <!-- Scene 1 -->
+      <div id="s1" class="side" role="tabpanel" aria-labelledby="tab1">
+        <div class="card"><h2>Host <em id="baudLabel"></em></h2><div class="files" id="files1"></div>
+          <div class="controls" style="margin-top:12px">
+            <button class="btn primary" id="sendAll">Send all files</button>
+            <span class="sp"></span>
+            <button class="btn" id="reset1">Reset</button>
+          </div>
+        </div>
+        <div class="card"><h2>UART wire <em id="wireLabel">idle</em></h2><div class="wire"><canvas id="wire"></canvas></div></div>
+        <div class="card view"><h2><span id="viewTitle">Compressor</span><em id="viewTags"></em></h2><canvas id="view"></canvas><div class="sumline" id="sum1">Send a file to watch each 1 KB page get compressed line by line.</div></div>
+        <div class="card"><h2>Log</h2><div class="log" id="log1"></div></div>
+      </div>
+
+      <!-- Scene 2 -->
+      <div id="s2" class="side" role="tabpanel" aria-labelledby="tab2" hidden>
+        <div class="card">
+          <h2>Files on the chip <em id="phase2">chip is 94% full</em></h2>
+          <table><thead><tr><th>File</th><th>Before</th><th>After</th><th class="r">Codecs</th></tr></thead><tbody id="tbody2"></tbody></table>
+        </div>
+        <div class="card">
+          <h2>Controls</h2>
+          <div class="controls">
+            <button class="btn primary" id="compact">Compress everything</button>
+            <label><input type="checkbox" id="manual"> I'll steer</label>
+            <span class="sp"></span>
+            <button class="btn" id="reset2">Reset</button>
+          </div>
+          <div class="controls pad" id="pad" style="margin-top:10px">
+            <button class="btn" data-k="ArrowLeft" aria-label="Move left">←</button>
+            <button class="btn" data-k="ArrowUp" aria-label="Rotate">Rotate</button>
+            <button class="btn" data-k="ArrowRight" aria-label="Move right">→</button>
+            <button class="btn" data-k="ArrowDown" aria-label="Drop">Drop</button>
+          </div>
+          <p class="note" id="hint2" style="margin-top:10px">Each piece is one 1 KB page after compression; each square is a 128-byte chunk. The chip's allocator can place chunks anywhere, so the shapes are only a picture of the packing problem. A page is compressed only if it saves at least <b id="gate"></b> of its 8 chunks; otherwise it stays raw and reads need no decode.</p>
+        </div>
+        <div class="card" id="resultCard" hidden><h2>Result</h2><div class="result" id="result"></div></div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="pause">Pause</button>
+        <label>Min saving <select id="gain" title="A page is compressed only if it saves at least this share of its 8 chunks"></select></label>
+        <label>Speed <select id="speed"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option><option value="10">10×</option></select></label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+function useGain(g) {
+  // picks the precomputed simulation for one threshold and exposes it as D.run1, D.run2 and D.meta.min_gain
+  const set = D.sets.find((x) => x.gain === g) || D.sets[0];
+  D.run1 = set.run1; D.run2 = set.run2; D.meta.min_gain = set.gain;
+}
+useGain(D.meta.default_gain);
+const KINDS = { csv: "CSV text", hex: "Intel HEX", code: "Program code", data: "Numeric data", jpg: "JPEG photo", txt: "Plain text", key: "Random key" };
+const $ = (id) => document.getElementById(id);
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- theme-aware colours ---------- */
+let themeCache = null;
+function theme() {
+  if (themeCache) return themeCache;
+  const cs = getComputedStyle(document.documentElement);
+  const g = (n) => cs.getPropertyValue(n).trim();
+  themeCache = { ink: g("--ink"), muted: g("--muted"), cell: g("--cell"), die: g("--die"), line: g("--line"), accent: g("--accent"), surface: g("--surface"),
+    kinds: Object.fromEntries(Object.keys(KINDS).map((k) => [k, g("--k-" + k)])) };
+  return themeCache;
+}
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { themeCache = null; });
+new MutationObserver(() => { themeCache = null; }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+function hex2rgb(h) { h = h.replace("#", ""); return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)); }
+function mix(a, b, t) { const A = hex2rgb(a), B = hex2rgb(b); return "rgb(" + A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(",") + ")"; }
+function alpha(c, a) { const [r, g, b] = c.startsWith("#") ? hex2rgb(c) : c.match(/\d+/g).map(Number); return "rgba(" + r + "," + g + "," + b + "," + a + ")"; }
+/* each file gets its kind colour, lightened a little when several files share a kind */
+function fileColor(files, i) {
+  const f = files[i], same = files.filter((x) => x.kind === f.kind), n = same.indexOf(f);
+  const th = theme(); const dark = th.surface.toLowerCase() < "#808080";
+  return n === 0 ? th.kinds[f.kind] : mix(th.kinds[f.kind], dark ? "#000000" : "#ffffff", Math.min(0.55, n * 0.2));
+}
+
+/* ---------- timing: pause, speed, cancel ---------- */
+let paused = false, speed = 2, runId = 0;
+class Cancel extends Error {}
+const sleep = (ms) => new Promise((res, rej) => {
+  const id = runId; let left = reduce ? 0 : ms;
+  (function tick(prev) {
+    requestAnimationFrame((now) => {
+      if (id !== runId) return rej(new Cancel());
+      const dt = now - prev; if (!paused) left -= dt * speed;
+      left <= 0 ? res() : tick(now);
+    });
+  })(performance.now());
+});
+function dec(b64) { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; }
+function kb(n) { return (n / 1024).toFixed(n < 1024 * 10 ? 1 : 0) + " KB"; }
+function sizeStr(n) { return n.toLocaleString("en-US") + " B"; }
+
+/* ---------- chip canvas ---------- */
+const cv = $("cv"), cx = cv.getContext("2d");
+const N = 16;
+let chip = [];              // per chunk: {f: file index or -1, p: page, a: opacity, glow: 0..1}
+let files = [];             // files of the active scene
+let overlay = null;         // falling piece or other drawing hook
+let freeBand = null;        // rows to outline as free space
+function emptyChip() { chip = Array.from({ length: N * N }, () => ({ f: -1, p: 0, a: 1, glow: 0 })); }
+function sizeCanvas() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function geom() {
+  const r = cv.getBoundingClientRect(), pad = 14, top = 26, cell = Math.min((r.width - pad * 2) / N, (r.height - pad - top) / N);
+  return { x0: pad + (r.width - pad * 2 - cell * N) / 2, y0: top, cell };
+}
+function rr(x, y, w, h, r) { cx.beginPath(); cx.roundRect(x, y, w, h, r); }
+function draw() {
+  if (!chip.length) return;
+  const th = theme(), g = geom(), r = cv.getBoundingClientRect();
+  cx.clearRect(0, 0, r.width, r.height);
+  const gap = 2, rad = Math.max(2, g.cell * 0.16);
+  for (let i = 0; i < N * N; i++) {
+    const c = chip[i], x = g.x0 + (i % N) * g.cell, y = g.y0 + Math.floor(i / N) * g.cell;
+    rr(x + gap / 2, y + gap / 2, g.cell - gap, g.cell - gap, rad);
+    if (c.f < 0) { cx.fillStyle = th.cell; cx.globalAlpha = 0.55; cx.fill(); cx.globalAlpha = 1; }
+    else { cx.fillStyle = fileColor(files, c.f); cx.globalAlpha = c.a; cx.fill(); cx.globalAlpha = 1; }
+    if (c.glow > 0) { rr(x + gap / 2, y + gap / 2, g.cell - gap, g.cell - gap, rad); cx.strokeStyle = th.accent; cx.lineWidth = 2; cx.globalAlpha = Math.min(1, c.glow); cx.stroke(); cx.globalAlpha = 1; }
+  }
+  if (freeBand) {
+    const { y1, y2, label } = freeBand;
+    cx.setLineDash([4, 4]); cx.strokeStyle = th.muted; cx.lineWidth = 1; cx.globalAlpha = 0.8;
+    rr(g.x0 + 1, g.y0 + y1 * g.cell + 1, g.cell * N - 2, (y2 - y1) * g.cell - 2, 8); cx.stroke(); cx.setLineDash([]); cx.globalAlpha = 1;
+    cx.fillStyle = th.muted; cx.font = "500 12px " + getComputedStyle(document.body).getPropertyValue("--mono"); cx.textAlign = "center";
+    cx.fillText(label, g.x0 + g.cell * N / 2, g.y0 + ((y1 + y2) / 2) * g.cell + 4); cx.textAlign = "left";
+  }
+  if (overlay) overlay(cx, g, th);
+}
+(function loop() { draw(); requestAnimationFrame(loop); })();
+new ResizeObserver(sizeCanvas).observe(cv); sizeCanvas();
+function cellAt(ev) {
+  const r = cv.getBoundingClientRect(), g = geom(), x = Math.floor((ev.clientX - r.left - g.x0) / g.cell), y = Math.floor((ev.clientY - r.top - g.y0) / g.cell);
+  return x >= 0 && y >= 0 && x < N && y < N ? y * N + x : -1;
+}
+cv.addEventListener("pointermove", (ev) => {
+  const i = cellAt(ev); if (i < 0) { $("hover").textContent = ""; return; }
+  const c = chip[i];
+  $("hover").textContent = c.f < 0 ? "Chunk " + i + " · free" : "Chunk " + i + " · " + files[c.f].name + (c.p >= 0 ? " · page " + (c.p + 1) : "");
+});
+cv.addEventListener("pointerleave", () => { $("hover").textContent = "Hover a cell to see what it holds."; });
+function cellCenter(i) {
+  const r = cv.getBoundingClientRect(), g = geom();
+  return { x: r.left + g.x0 + (i % N + 0.5) * g.cell, y: r.top + g.y0 + (Math.floor(i / N) + 0.5) * g.cell };
+}
+function fly(from, i, color) {
+  if (reduce) return Promise.resolve();
+  return new Promise((res) => {
+    const d = document.createElement("div"); d.className = "fly"; d.style.background = color; document.body.appendChild(d);
+    const to = cellCenter(i), dur = 420 / speed;
+    const a = d.animate([{ transform: "translate(" + (from.x - 5) + "px," + (from.y - 5) + "px) scale(1.2)", opacity: 0.9 },
+      { transform: "translate(" + (to.x - 5) + "px," + (to.y - 5) + "px) scale(1.6)", opacity: 0.2 }], { duration: dur, easing: "cubic-bezier(.2,.7,.2,1)" });
+    a.onfinish = () => { d.remove(); res(); };
+  });
+}
+function setCells(list, f, p) { list.forEach((i) => { chip[i].f = f; chip[i].p = p; chip[i].a = 1; }); }
+function glow(list, v) { list.forEach((i) => { chip[i].glow = v; }); }
+function updateMeter(storedChunks, rawBytes) {
+  const used = chip.filter((c) => c.f >= 0).length;
+  $("barUsed").style.width = (used / (N * N) * 100) + "%";
+  const free = N * N - used;
+  $("stats").innerHTML = "<div><b>" + kb(used * 128) + "</b> <span>used of 32 KB</span></div><div><b>" + kb(free * 128) + "</b> <span>free</span></div>" +
+    (rawBytes ? "<div><b>" + (rawBytes / Math.max(1, used * 128)).toFixed(2) + "×</b> <span>" + kb(rawBytes) + " of files in " + kb(used * 128) + "</span></div>" : "");
+}
+function legend(kinds) {
+  const th = theme();
+  $("legend").innerHTML = kinds.map((k) => "<span><i style='background:" + th.kinds[k] + "'></i>" + KINDS[k] + "</span>").join("");
+}
+
+/* ============================================================
+   Scene 1: store and retrieve
+   ============================================================ */
+let R1 = D.run1;
+const view = $("view"), vx = view.getContext("2d");
+const wire = $("wire"), wx = wire.getContext("2d");
+let s1 = null;
+function logLine(html) { const l = $("log1"); const d = document.createElement("div"); d.innerHTML = html; l.appendChild(d); l.scrollTop = l.scrollHeight; }
+
+function initScene1() {
+  runId++; paused = false; $("pause").textContent = "Pause";
+  files = R1.files.map((f) => Object.assign({}, f, { bytes: dec(f.b64) }));
+  s1 = { state: files.map(() => "host"), rawLoaded: 0, vstate: null };
+  emptyChip(); overlay = null; freeBand = null;
+  legend([...new Set(files.map((f) => f.kind))]);
+  $("baudLabel").textContent = R1.baud.toLocaleString("en-US") + " baud";
+  $("log1").innerHTML = ""; $("wireLabel").textContent = "idle"; $("viewTitle").textContent = "Compressor"; $("viewTags").textContent = "";
+  $("sum1").innerHTML = "Send a file to watch each 1 KB page get compressed line by line.";
+  $("sendAll").disabled = false;
+  renderFiles1(); sizeView(); drawView(null); drawWire(0, 1); updateMeter(0, 0);
+}
+function renderFiles1() {
+  $("files1").innerHTML = files.map((f, i) => {
+    const st = s1.state[i], col = fileColor(files, i);
+    const right = st === "host" ? "<button class='btn' data-send='" + i + "'>Send</button>"
+      : st === "busy" ? "<span class='sz'>working…</span>"
+      : "<button class='btn' data-get='" + i + "'>Retrieve</button>";
+    const note = st === "loaded" ? (f.stored_chunks_now * 128 / 1024).toFixed(1) + " KB stored" : f.kind;
+    return "<div class='frow'><span class='sw' style='background:" + col + "'></span><div class='nm'><b>" + f.name + "</b><small>" + note + (f.ok ? " · <span class='ok'>✓ identical</span>" : "") + "</small></div><span class='sz'>" + sizeStr(f.size) + "</span>" + right + "</div>";
+  }).join("");
+}
+$("files1").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.send) guard(() => sendFile(+b.dataset.send));
+  if (b.dataset.get) guard(() => retrieve(+b.dataset.get));
+});
+async function guard(fn) { const id = runId; try { await fn(); } catch (e) { if (!(e instanceof Cancel)) throw e; } }
+
+/* wire animation: bytes travelling toward the chip (dir 1) or back to the host (dir -1) */
+function sizeWire() { const r = wire.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1); wire.width = r.width * d; wire.height = r.height * d; wx.setTransform(d, 0, 0, d, 0, 0); }
+function drawWire(p, dir, bytes) {
+  const r = wire.getBoundingClientRect(), th = theme(); wx.clearRect(0, 0, r.width, r.height);
+  const y = r.height / 2;
+  wx.strokeStyle = th.line; wx.lineWidth = 1.5; wx.beginPath(); wx.moveTo(8, y); wx.lineTo(r.width - 8, y); wx.stroke();
+  wx.fillStyle = th.muted; wx.font = "11px " + getComputedStyle(document.body).getPropertyValue("--mono");
+  wx.fillText("HOST", 8, 12); wx.textAlign = "right"; wx.fillText("CHIP", r.width - 8, 12); wx.textAlign = "left";
+  if (bytes) {
+    const n = 26;
+    for (let i = 0; i < n; i++) {
+      let t = ((i / n) + p * 1.0) % 1; if (dir < 0) t = 1 - t;
+      const x = 8 + t * (r.width - 16), v = bytes[(i * 37 + Math.floor(p * 80)) % bytes.length];
+      wx.fillStyle = alpha(th.ink, 0.15 + 0.7 * (v / 255)); wx.fillRect(x, y - 3 + ((i % 3) - 1) * 6, 6, 6);
+    }
+  }
+}
+async function sendWire(f, dir) {
+  const ms = 900; let t = 0; const id = runId;
+  $("wireLabel").textContent = (dir > 0 ? "→ " : "← ") + f.name + " · " + sizeStr(f.size) + " · " + f.uart_ms + " ms on the wire";
+  const steps = 18;
+  for (let i = 0; i < steps; i++) { drawWire(i / steps, dir, f.bytes); await sleep(ms / steps); }
+  drawWire(0, dir, null);
+}
+
+/* compressor view: one row per 64 byte line */
+const ROW = 19;
+function sizeView() { const r = view.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1); const h = 16 * ROW + 6; view.style.height = h + "px"; view.width = r.width * d; view.height = h * d; vx.setTransform(d, 0, 0, d, 0, 0); }
+new ResizeObserver(() => { sizeWire(); sizeView(); drawView(s1 && s1.vstate); }).observe(view);
+function drawView(vs) {
+  const r = view.getBoundingClientRect(), th = theme(); vx.clearRect(0, 0, r.width, 16 * ROW + 6);
+  const mono = getComputedStyle(document.body).getPropertyValue("--mono");
+  const lab = 22, tagW = 54, txtW = 64, sw = (r.width - lab - tagW - txtW - 12) / 2, cw = sw / 64;
+  const xA = lab, xT = lab + sw + 6, xB = xT + tagW;
+  vx.font = "11px " + mono; vx.textBaseline = "middle";
+  for (let i = 0; i < 16; i++) {
+    const y = i * ROW + 3, mid = y + ROW / 2;
+    vx.fillStyle = th.muted; vx.textAlign = "left"; vx.fillText(String(i).padStart(2, "0"), 0, mid);
+    const L = vs && vs.lines[i], st = L ? L.st : 0;
+    const left = vs && vs.mode === "dec" ? (L ? L.comp : null) : (L ? L.raw : null);
+    // left strip: raw line when compressing, compressed line when decompressing
+    if (vs && L) {
+      if (vs.mode === "dec") strip(vx, xA, y, cw, L.compBytes, L.codec === "zero" ? 0 : L.b, vs.color, th, true);
+      else strip(vx, xA, y, cw, L.rawBytes, 64, th.ink, th, false);
+    } else { vx.fillStyle = th.cell; vx.globalAlpha = .4; vx.fillRect(xA, y + 3, sw, ROW - 8); vx.globalAlpha = 1; }
+    if (L && st === 1) { vx.strokeStyle = th.accent; vx.lineWidth = 2; vx.strokeRect(xA - 2, y + 1, sw + 4, ROW - 4); }
+    if (L && st >= 2) {
+      vx.fillStyle = th.ink; vx.textAlign = "center"; vx.fillText({ zero: "zero", bdi: "BDI", fpc: "FPC", raw: "raw", lz: "LZ" }[L.codec], xT + tagW / 2, mid);
+      const w = vs.mode === "dec" ? 64 : (L.codec === "zero" ? 0 : L.b);
+      if (vs.mode === "dec") strip(vx, xB, y, cw, L.rawBytes, 64, th.ink, th, false);
+      else strip(vx, xB, y, cw, L.compBytes, w, vs.color, th, true);
+      vx.textAlign = "left"; vx.fillStyle = th.muted;
+      vx.fillText(vs.mode === "dec" ? (L.b + " → 64 B") : ("64 → " + (L.codec === "zero" ? 0 : L.b) + " B"), xB + sw + 8, mid);
+    }
+  }
+  if (vs && vs.lz) {
+    // LZ pages: the whole page becomes one stream, drawn as rows of 64 bytes next to the raw rows
+    vx.fillStyle = th.surface; vx.fillRect(xB - 4, 0, r.width, 16 * ROW + 6);
+    const blob = vs.lz.bytes, rows = Math.ceil(blob.length / 64), shown = Math.round(vs.lz.p * blob.length);
+    for (let rr_ = 0; rr_ < rows; rr_++) for (let c = 0; c < 64; c++) {
+      const k = rr_ * 64 + c; if (k >= blob.length) break;
+      vx.fillStyle = alpha(vs.color, k < shown ? 0.3 + 0.7 * blob[k] / 255 : 0.08); vx.fillRect(xB + c * cw, rr_ * ROW + 6, Math.max(1, cw - 0.6), ROW - 8);
+    }
+    vx.fillStyle = th.muted; vx.textAlign = "left"; vx.fillText((vs.lz.algo === "xz" ? "xz stream" : "LZSS stream") + " · " + blob.length + " B", xB, rows * ROW + 16);
+  }
+}
+function strip(c, x, y, cw, bytes, n, color, th, tinted) {
+  for (let k = 0; k < n; k++) {
+    const v = bytes && k < bytes.length ? bytes[k] : 0;
+    if (!tinted && v === 0) { c.fillStyle = th.cell; c.globalAlpha = .35; } else { c.fillStyle = tinted ? color : color; c.globalAlpha = tinted ? 0.35 + 0.65 * (v / 255) : 0.1 + 0.85 * Math.pow(v / 255, 0.7); }
+    c.fillRect(x + k * cw, y + 3, Math.max(1, cw - 0.6), ROW - 8);
+  }
+  c.globalAlpha = 1;
+}
+function hexOrB64(b) { return dec(b); }
+function hexBytes(h) { const u = new Uint8Array(h.length / 2); for (let i = 0; i < u.length; i++) u[i] = parseInt(h.substr(i * 2, 2), 16); return u; }
+function pageView(f, fi, pi, mode) {
+  const pg = f.pages[pi], raw = f.bytes.subarray(pi * 1024, (pi + 1) * 1024);
+  const lines = [];
+  for (let i = 0; i < 16; i++) {
+    const rawB = new Uint8Array(64); rawB.set(raw.subarray(i * 64, i * 64 + 64));
+    const pl = pg.lines[i];
+    lines.push({ st: 0, rawBytes: rawB, codec: pl ? pl.c : "zero", b: pl ? pl.b : 0, compBytes: pl ? hexBytes(pl.p) : new Uint8Array(0) });
+  }
+  return { mode, color: fileColor(files, fi), lines };
+}
+function tagsHtml(pg) {
+  const c = {}; pg.lines.forEach((l) => { c[l.c] = (c[l.c] || 0) + 1; });
+  return Object.entries(c).map(([k, v]) => "<i>" + ({ zero: "Z", bdi: "B", fpc: "F", raw: "R" }[k]) + " × " + v + "</i>").join("");
+}
+function pageSummary(pg, f) {
+  if (pg.mode === 0) return "Every line is zero, so this page needs <b>no chunks at all</b>. Reads of it return zeros without touching the memory.";
+  if (pg.mode === 1 && pg.gated) return "Compression would save only <b>" + (8 - pg.would) + " of 8 chunks</b>, under the <b>" + +(100 * D.meta.min_gain).toFixed(1) + "% threshold</b>, so the page stays <b>raw in 8 chunks</b>. Reads of it need no decode.";
+  if (pg.mode === 1) return "Nothing here shrinks enough to pay off, so the page is stored <b>raw in 8 chunks</b>.";
+  if (pg.mode >= 3) return (pg.lz.algo === "xz" ? "The software tier's xz wins: " : "LZSS wins: ") + "1,024 B → <b>" + pg.lz.len + " B</b>, <b>" + pg.chunks.length + " chunks</b> instead of " + pg.lm_chunks + " (line codecs) or 8 (raw). Chunks " + pg.chunks.join(", ") + ".";
+  const exc = pg.exc.length;
+  return "Slot size <b>" + pg.slot + " B</b> × 16 lines" + (exc ? " + <b>" + exc + " exception" + (exc > 1 ? "s" : "") + "</b> kept raw" : "") + " = <b>" + pg.chunks.length + " chunks</b> instead of 8. Chunks " + pg.chunks.join(", ") + ".";
+}
+async function runPage(fi, pi, slow, mode) {
+  const f = files[fi], pg = f.pages[pi]; const vs = pageView(f, fi, pi, mode); s1.vstate = vs;
+  $("viewTitle").textContent = (mode === "dec" ? "Decompressor" : "Compressor") + " · " + f.name + " · page " + (pi + 1) + " of " + f.pages.length;
+  $("viewTags").innerHTML = "<span class='tags'>" + tagsHtml(pg) + "</span>";
+  $("sum1").innerHTML = mode === "dec" ? "Reading chunks <b>" + (pg.chunks.join(", ") || "none") + "</b>, then decoding each line with the codec the page table remembers." : "Choosing the smallest codec for each 64 byte line…";
+  if (mode === "dec") { glow(pg.chunks, 1); }
+  const per = slow ? 55 : 9;
+  for (let i = 0; i < 16; i++) { vs.lines[i].st = 1; drawView(vs); await sleep(per); vs.lines[i].st = 2; drawView(vs); }
+  drawView(vs);
+  if (pg.mode >= 3) {
+    // the line codecs could not see repeats across lines, so the whole page is coded as one stream (LZSS or xz)
+    $("sum1").innerHTML = "Line codecs alone would need <b>" + pg.lm_chunks + " chunks</b>. The page engine tries " + (pg.lz.algo === "xz" ? "LZSS, then the software tier tries xz" : "LZSS") + " on the whole page…";
+    await sleep(slow ? 700 : 60);
+    const blob = hexOrB64(pg.lz.b64); vs.lz = { bytes: blob, p: 0, algo: pg.lz.algo }; $("viewTags").innerHTML = "<span class='tags'><i>" + (pg.lz.algo === "xz" ? "xz" : "LZSS") + "</i></span>";
+    for (let q = 0; q <= 10; q++) { vs.lz.p = q / 10; drawView(vs); await sleep(slow ? 70 : 8); }
+  }
+  $("sum1").innerHTML = pageSummary(pg, f);
+  return pg;
+}
+
+async function placePage(fi, pi, pg) {
+  const col = fileColor(files, fi);
+  const r = view.getBoundingClientRect(), from = { x: r.left + r.width * 0.75, y: r.top + r.height * 0.5 };
+  const ps = [];
+  for (const c of pg.chunks) { ps.push(fly(from, c, col).then(() => { chip[c].f = fi; chip[c].p = pi; chip[c].a = 1; chip[c].glow = 1; })); await sleep(18); }
+  await Promise.all(ps);
+  await sleep(60); glow(pg.chunks, 0);
+}
+
+async function sendFile(fi) {
+  const f = files[fi]; s1.state[fi] = "busy"; renderFiles1(); $("sendAll").disabled = true;
+  logLine("<b>" + f.name + "</b> arrives over the UART, " + sizeStr(f.size) + " in " + f.pages.length + " pages");
+  await sendWire(f, 1);
+  f.stored_chunks_now = 0;
+  for (let pi = 0; pi < f.pages.length; pi++) {
+    const pg = await runPage(fi, pi, pi === 0, "enc");
+    await placePage(fi, pi, pg);
+    f.stored_chunks_now += pg.chunks.length; s1.rawLoaded = files.reduce((s, x, i) => s + (s1.state[i] !== "host" ? x.size : 0), 0);
+    updateMeter(0, s1.rawLoaded);
+  }
+  s1.state[fi] = "loaded"; renderFiles1(); updateMeter(0, s1.rawLoaded);
+  logLine("<b>" + f.name + "</b> stored in <b>" + f.stored_chunks_now + " chunks</b> (" + kb(f.stored_chunks_now * 128) + ") instead of " + f.pages.length * 8);
+  if (s1.state.every((s) => s !== "host")) $("sendAll").disabled = true; else $("sendAll").disabled = false;
+}
+$("sendAll").addEventListener("click", () => guard(async () => { for (let i = 0; i < files.length; i++) if (s1.state[i] === "host") await sendFile(i); }));
+
+async function retrieve(fi) {
+  const f = files[fi]; const pgs = f.pages;
+  logLine("Host asks for <b>" + f.name + "</b>");
+  const mine = []; chip.forEach((c, i) => { if (c.f === fi) mine.push(i); });
+  for (let pi = 0; pi < pgs.length; pi++) {
+    const own = []; chip.forEach((c, i) => { if (c.f === fi && c.p === pi) own.push(i); });
+    const pg = Object.assign({}, pgs[pi], { chunks: own });
+    if (pgs[pi].mode >= 3) {
+      // LZSS and xz pages are read as one stream that expands back to the full page
+      const blob = dec(pgs[pi].lz.b64), raw = f.bytes.subarray(pi * 1024, (pi + 1) * 1024);
+      const vs = { mode: "enc", color: fileColor(files, fi), lines: [], lz: { bytes: blob, p: 1, algo: pgs[pi].lz.algo } };
+      for (let i = 0; i < 16; i++) { const rb = new Uint8Array(64); rb.set(raw.subarray(i * 64, i * 64 + 64)); vs.lines.push({ st: 2, rawBytes: rb, codec: "lz", b: 0, compBytes: new Uint8Array(0) }); }
+      s1.vstate = vs; $("viewTitle").textContent = "Decompressor · " + f.name + " · page " + (pi + 1) + " of " + pgs.length; $("viewTags").innerHTML = "<span class='tags'><i>" + (pgs[pi].lz.algo === "xz" ? "xz" : "LZSS") + "</i></span>";
+      glow(own, 1); drawView(vs); $("sum1").innerHTML = "Reading chunks <b>" + own.join(", ") + "</b>: " + blob.length + " B of " + (pgs[pi].lz.algo === "xz" ? "xz" : "LZSS") + " stream expand back to <b>1,024 B</b>."; await sleep(pi === 0 ? 500 : 120); glow(own, 0);
+    } else {
+      await runPage(fi, pi, pi === 0, "dec"); await sleep(pi === 0 ? 200 : 20); glow(own, 0);
+    }
+  }
+  await sendWire(f, -1);
+  f.ok = true; renderFiles1();
+  logLine("<b>" + f.name + "</b> returned. SHA-1 <b>" + f.sha1.slice(0, 10) + "…</b> matches the original, byte for byte.");
+}
+
+$("reset1").addEventListener("click", initScene1);
+
+/* ============================================================
+   Scene 2: compact a full chip (a falling-block game with a real packing problem)
+   ============================================================ */
+let R2 = D.run2;
+const SHAPES = {
+  1: [[[0, 0]]],
+  2: [[[0, 0], [1, 0]]],
+  3: [[[0, 0], [1, 0], [2, 0]], [[0, 0], [0, 1], [1, 1]]],
+  4: [[[0, 0], [1, 0], [2, 0], [3, 0]], [[0, 0], [1, 0], [0, 1], [1, 1]], [[0, 0], [1, 0], [2, 0], [1, 1]], [[0, 0], [0, 1], [1, 1], [2, 1]], [[1, 0], [2, 0], [0, 1], [1, 1]]],
+  5: [[[0, 0], [1, 0], [0, 1], [1, 1], [0, 2]], [[0, 0], [0, 1], [0, 2], [0, 3], [1, 3]]],
+  6: [[[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]]],
+  7: [[[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [3, 1]]],
+  8: [[[0, 0], [1, 0], [2, 0], [3, 0], [0, 1], [1, 1], [2, 1], [3, 1]]],
+};
+function norm(cells) { const mx = Math.min(...cells.map((c) => c[0])), my = Math.min(...cells.map((c) => c[1])); return cells.map(([x, y]) => [x - mx, y - my]); }
+function rot(cells) { return norm(cells.map(([x, y]) => [-y, x])); }
+function rotations(cells) {
+  const out = []; let cur = cells; const seen = new Set();
+  for (let r = 0; r < 4; r++) { const key = JSON.stringify(cur.slice().sort()); if (!seen.has(key)) { seen.add(key); out.push(cur); } cur = rot(cur); }
+  return out;
+}
+let s2 = null;
+function initScene2() {
+  $("gate").textContent = +(100 * D.meta.min_gain).toFixed(1) + "%";
+  runId++; paused = false; $("pause").textContent = "Pause";
+  files = R2.files.map((f) => Object.assign({}, f));
+  s2 = { done: false };
+  emptyChip(); R2.before.forEach((o, i) => { if (o) { const fi = files.findIndex((f) => f.name === o[0]); chip[i].f = fi >= 0 ? fi : files.length; chip[i].p = o[1]; } });
+  // temporary files that were deleted already left their holes; any leftover owner (none) would show as a grey file
+  overlay = null; freeBand = null;
+  legend([...new Set(files.map((f) => f.kind))]);
+  $("resultCard").hidden = true; $("compact").disabled = false; $("manual").disabled = false; $("pad").classList.remove("show");
+  $("phase2").textContent = "chip is " + Math.round(R2.used_before / 256 * 100) + "% full";
+  $("hint2").style.display = "";
+  renderTable2(null); updateMeter(0, files.reduce((s, f) => s + f.size, 0));
+}
+function codecSummary(f) {
+  const set = new Set(); f.pages.forEach((p) => { if (p.mode >= 3) set.add(p.codecs[0] === "xz" ? "xz" : "LZSS"); else if (p.mode === 1) set.add("raw"); else if (p.mode === 0) set.add("zero"); else p.codecs.forEach((c) => set.add(c.toUpperCase())); });
+  const a = [...set].filter((x) => x !== "ZERO" || set.size === 1); return a.join(" · ") || "raw";
+}
+function miniBar(fi, raw, now, showNow) {
+  const col = fileColor(files, fi), n = raw;
+  let h = "<span class='mini' style='--c:" + col + "'>";
+  const per = Math.max(1, Math.round(raw / 16));
+  for (let i = 0; i < Math.ceil(raw / 2); i++) { const idx = i * 2; h += "<i class='" + (showNow ? (idx < now ? "on" : "out") : "on") + "'></i>"; }
+  return h + "</span>";
+}
+function renderTable2(active, measured) {
+  $("tbody2").innerHTML = files.map((f, i) => {
+    const m = measured && measured[i] !== undefined, col = fileColor(files, i);
+    return "<tr><td><span class='sw' style='display:inline-block;width:10px;height:10px;border-radius:3px;background:" + col + ";margin-right:8px'></span>" + f.name + "</td>" +
+      "<td>" + f.raw_chunks + "</td><td>" + (m ? "<b>" + f.new_chunks + "</b> <span style='color:var(--muted)'>(" + (f.new_chunks === f.raw_chunks ? "no gain" : "−" + Math.round((1 - f.new_chunks / f.raw_chunks) * 100) + "%") + ")</span>" : (active === i ? "measuring…" : "·")) + "</td>" +
+      "<td class='r' style='font:12px var(--mono);color:var(--muted)'>" + (m ? codecSummary(f) : "") + "</td></tr>";
+  }).join("");
+}
+let manualKeys = []; let manualWait = null;
+document.addEventListener("keydown", (e) => {
+  if (!manualWait) return;
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(e.key)) { e.preventDefault(); manualKeys.push(e.key === " " ? "ArrowDown" : e.key); }
+});
+$("pad").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && manualWait) manualKeys.push(b.dataset.k); });
+$("manual").addEventListener("change", () => $("pad").classList.toggle("show", $("manual").checked));
+
+/* board helpers: occ[y][x] holds the file index or -1 (y = 15 is the bottom row) */
+function landY(occ, cells, x) {
+  let y = -4;
+  for (; ; y++) { if (collide(occ, cells, x, y + 1)) break; }
+  return y;
+}
+function collide(occ, cells, x, y) {
+  for (const [cxx, cyy] of cells) { const X = x + cxx, Y = y + cyy; if (X < 0 || X >= N || Y >= N) return true; if (Y >= 0 && occ[Y][X] >= 0) return true; }
+  return false;
+}
+function holesAfter(occ, cells, x, y) {
+  let holes = 0; const cols = new Map();
+  for (const [cxx, cyy] of cells) { const X = x + cxx, Y = y + cyy; if (!cols.has(X) || cols.get(X) < Y) cols.set(X, Y); }
+  for (const [X, Y] of cols) for (let yy = Y + 1; yy < N; yy++) { if (occ[yy][X] >= 0) break; if (!cells.some(([a, b]) => x + a === X && y + b === yy)) holes++; }
+  return holes;
+}
+function choose(occ, base) {
+  let best = null;
+  rotations(base).forEach((cells, ri) => {
+    const w = Math.max(...cells.map((c) => c[0])) + 1;
+    for (let x = 0; x + w <= N; x++) {
+      const y = landY(occ, cells, x), h = Math.max(...cells.map((c) => c[1]));
+      if (y + Math.min(...cells.map((c) => c[1])) < -3) continue;
+      const score = holesAfter(occ, cells, x, y) * 40 + (N - 1 - (y + h)) * 1 + x * 0.01;
+      if (!best || score < best.score) best = { score, ri, cells, x, y };
+    }
+  });
+  return best;
+}
+function boardToChip(occ, pid) { for (let i = 0; i < N * N; i++) { const f = occ[Math.floor(i / N)][i % N]; chip[i].f = f; chip[i].a = 1; } }
+
+$("compact").addEventListener("click", () => guard(async () => {
+  $("compact").disabled = true; $("manual").disabled = true;
+  const measured = {};
+  // phase 1: measure
+  $("phase2").textContent = "measuring each file";
+  for (let i = 0; i < files.length; i++) {
+    const own = []; chip.forEach((c, k) => { if (c.f === i) own.push(k); });
+    glow(own, 1); renderTable2(i, measured); await sleep(260); measured[i] = true; renderTable2(null, measured); glow(own, 0);
+  }
+  await sleep(300);
+  // phase 2: lift everything off the chip
+  $("phase2").textContent = "repacking";
+  for (let wave = 0; wave < 8; wave++) { for (let i = 0; i < N * N; i++) if (chip[i].f >= 0) chip[i].a = Math.max(0, chip[i].a - 0.25); await sleep(60); }
+  emptyChip();
+  const occ = Array.from({ length: N }, () => Array(N).fill(-1));
+  // phase 3: pieces drop, largest first
+  const pieces = R2.pieces.map((p, idx) => Object.assign({ idx, fi: files.findIndex((f) => f.name === p.file) }, p)).filter((p) => p.k > 0)
+    .sort((a, b) => b.k - a.k || a.idx - b.idx);
+  const manual = $("manual").checked; if (manual) $("hint2").style.display = "none";
+  let n = 0;
+  for (const pc of pieces) {
+    n++;
+    const shapes = SHAPES[pc.k]; const base = shapes[(pc.fi + pc.page) % shapes.length];
+    const col = fileColor(files, pc.fi);
+    let rots = rotations(base), ri = 0, px = Math.floor((N - 2) / 2), py = -3;
+    const targetAI = choose(occ, base);
+    let cells = rots[0];
+    const pieceDraw = (c, g, th) => {
+      const gx = g.x0, gy = g.y0;
+      // ghost
+      const ly = landY(occ, cells, px);
+      c.save(); c.globalAlpha = 0.28; c.strokeStyle = th.ink; c.lineWidth = 1.5;
+      for (const [a, b] of cells) { const X = px + a, Y = ly + b; if (Y >= 0) { c.beginPath(); c.roundRect(gx + X * g.cell + 2, gy + Y * g.cell + 2, g.cell - 4, g.cell - 4, 4); c.stroke(); } }
+      c.restore();
+      c.fillStyle = col;
+      for (const [a, b] of cells) { const X = px + a, Y = py + b; if (Y > -4) { c.beginPath(); c.roundRect(gx + X * g.cell + 1, gy + Y * g.cell + 1, g.cell - 2, g.cell - 2, 4); c.fill(); } }
+    };
+    overlay = pieceDraw;
+    $("phase2").textContent = "piece " + n + " of " + pieces.length + " · " + files[pc.fi].name + " · " + pc.k + " chunks";
+    if (manual) {
+      manualKeys = []; manualWait = true; let dropped = false;
+      while (!dropped) {
+        await sleep(30);
+        while (manualKeys.length) {
+          const k = manualKeys.shift();
+          if (k === "ArrowLeft" && !collide(occ, cells, px - 1, py)) px--;
+          if (k === "ArrowRight" && !collide(occ, cells, px + 1, py)) px++;
+          if (k === "ArrowUp") { ri = (ri + 1) % rots.length; const nc = rots[ri]; if (!collide(occ, nc, px, py)) cells = nc; else ri = (ri + rots.length - 1) % rots.length; }
+          if (k === "ArrowDown") dropped = true;
+        }
+      }
+      manualWait = null;
+    } else {
+      // steer to the chosen rotation and column
+      while (ri !== targetAI.ri && rots.length > 1) { ri = (ri + 1) % rots.length; cells = rots[ri]; await sleep(55); if (ri === 0) break; }
+      cells = targetAI.cells; ri = targetAI.ri;
+      while (px !== targetAI.x) { px += Math.sign(targetAI.x - px); await sleep(32); }
+    }
+    const ly = landY(occ, cells, px);
+    while (py < ly) { py++; await sleep(22); }
+    for (const [a, b] of cells) { const X = px + a, Y = py + b; if (Y >= 0) occ[Y][X] = pc.fi; }
+    overlay = null; boardToChip(occ);
+    cells.forEach(([a, b]) => { const Y = py + b; if (Y >= 0) { const i = Y * N + px + a; chip[i].p = pc.page; chip[i].glow = 1; setTimeout(() => { chip[i].glow = 0; }, 160 / speed); } });
+    await sleep(40);
+  }
+  overlay = null;
+  // phase 4: the allocator can use every hole, so cells settle straight down
+  $("phase2").textContent = "closing the gaps";
+  await sleep(300);
+  const settled = Array.from({ length: N }, () => Array(N).fill(-1));
+  const paths = [];
+  for (let x = 0; x < N; x++) { let yy = N - 1; for (let y = N - 1; y >= 0; y--) if (occ[y][x] >= 0) { paths.push({ x, from: y, to: yy, f: occ[y][x] }); settled[yy][x] = occ[y][x]; yy--; } }
+  const t0 = performance.now(); const dur = 650;
+  overlay = (c, g, th) => {
+    const t = Math.min(1, (performance.now() - t0) * (paused ? 0 : speed) / dur); const e = 1 - Math.pow(1 - t, 3);
+    for (const p of paths) { const y = p.from + (p.to - p.from) * e; c.fillStyle = fileColor(files, p.f); c.beginPath(); c.roundRect(g.x0 + p.x * g.cell + 1, g.y0 + y * g.cell + 1, g.cell - 2, g.cell - 2, 4); c.fill(); }
+  };
+  for (let i = 0; i < N * N; i++) chip[i].f = -1;
+  await sleep(dur + 80);
+  overlay = null;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { chip[y * N + x].f = settled[y][x]; chip[y * N + x].a = 1; }
+  const used = chip.filter((c) => c.f >= 0).length, free = N * N - used, rows = Math.floor(free / N);
+  freeBand = rows > 0 ? { y1: 0, y2: rows, label: free + " chunks free · " + kb(free * 128) } : null;
+  // result
+  const rawTotal = files.reduce((s, f) => s + f.size, 0);
+  const avg = used * 128 / files.length;
+  $("resultCard").hidden = false;
+  $("result").innerHTML = "<div><b>" + R2.used_before + " → " + used + "</b><span>chunks in use</span></div><div><b>" + kb(free * 128) + "</b><span>now free (was " + kb((256 - R2.used_before) * 128) + ")</span></div><div><b>≈ " + Math.floor(free * 128 / avg) + " more</b><span>files like these would fit</span></div>";
+  $("phase2").textContent = "done · every file verified byte-exact";
+  updateMeter(0, rawTotal);
+}));
+$("reset2").addEventListener("click", initScene2);
+
+/* ---------- shell: tabs, pause, speed ---------- */
+function showScene(n) {
+  curScene = n; runId++; manualWait = null; paused = false; $("pause").textContent = "Pause";
+  $("s1").hidden = n !== 1; $("s2").hidden = n !== 2;
+  $("tab1").setAttribute("aria-selected", n === 1); $("tab2").setAttribute("aria-selected", n === 2);
+  n === 1 ? initScene1() : initScene2();
+  try { history.replaceState(null, "", "#scene" + n); } catch (e) {}
+}
+$("tab1").addEventListener("click", () => showScene(1)); $("tab2").addEventListener("click", () => showScene(2));
+$("pause").addEventListener("click", () => { paused = !paused; $("pause").textContent = paused ? "Resume" : "Pause"; });
+$("speed").addEventListener("change", (e) => { speed = +e.target.value; });
+speed = +$("speed").value;
+let curScene = 1;
+$("gain").innerHTML = D.sets.map((x) => "<option value=\"" + x.gain + "\"" + (x.gain === D.meta.default_gain ? " selected" : "") + ">" + (x.gain === 0 ? "off" : (100 * x.gain) + "%") + "</option>").join("");
+$("gain").addEventListener("change", (e) => { useGain(+e.target.value); R1 = D.run1; R2 = D.run2; showScene(curScene); });
+showScene(location.hash === "#scene2" ? 2 : 1);
+</script>
